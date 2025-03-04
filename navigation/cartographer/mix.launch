@@ -1,0 +1,29 @@
+<launch>
+  <param name="/use_sim_time" value="false" />
+
+<!-- 控制器 -->
+
+<!-- lidar -->
+
+<!-- Carto -->
+  <node name="cartographer_node" pkg="cartographer_ros"
+        type="cartographer_node" args="
+            -configuration_directory $(find cartographer_ros)/configuration_files
+            -configuration_basename mix.lua"
+        output="screen">
+        <remap from="scan" to="/scan" />
+        <remap from="odom" to="/odom" />
+  </node>
+
+<!-- 建图 -->
+  <node name="cartographer_occupancy_grid_node" pkg="cartographer_ros"
+        type="cartographer_occupancy_grid_node" args="-resolution 0.05" />
+
+  <!-- 由于采取 remote-rviz 方案，rviz 交由 客户端 启动
+  <node name="rviz" pkg="rviz" type="rviz" required="true"
+      args="-d $(find cartographer_ros)/configuration_files/demo_2d.rviz" /> -->
+
+<!-- tf tree
+  <node name="rqt_tf_tree" pkg="rqt_tf_tree" type="rqt_tf_tree" /> -->
+
+</launch>

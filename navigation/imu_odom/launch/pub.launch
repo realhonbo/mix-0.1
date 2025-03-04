@@ -1,0 +1,6 @@
+<launch>
+    <!-- 启动 imu_odom 节点 -->
+    <node 
+        pkg="imu_odom" type="imu_odom" name="imu_odom_node" output="screen"
+    />
+</launch>

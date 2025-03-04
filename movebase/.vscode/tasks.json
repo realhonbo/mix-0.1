@@ -1,0 +1,67 @@
+{
+    "version": "2.0.0",
+    "type": "shell",
+    "tasks": [
+        {
+            "label": "regenerate build/",
+            "command": "cmake",
+            "args": [ "-S", ".", "-B", "build/", "-G", "Unix Makefiles" ],
+            "group": { "kind": "build", "isDefault": false }
+        },
+        {
+            "label": "compile",
+            "command": "cmake",
+            "args": [ "--build", "build/", "-j16" ],
+            "problemMatcher": [ "$gcc" ],
+        },
+        {
+            "label": "compile and program",
+            "command": "openocd",
+            "args": [
+                "-f",
+                "interface/stlink.cfg",
+                "-f",
+                "target/stm32f1x.cfg",
+                "-c",
+                "program build/movebase.bin 0x8000000 verify reset exit"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": "compile"
+        },
+        {
+            "label": "compile and use opi program",
+            "command": "scp build/movebase.bin orangepi@192.168.0.20:~",
+            "problemMatcher": [ "$gcc" ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": "compile"
+        },
+        {
+            "label": "program",
+            "command": "openocd",
+            "args": [
+                "-f",
+                "interface/stlink.cfg",
+                "-f",
+                "target/stm32f1x.cfg",
+                "-c",
+                "program build/movebase.bin 0x8000000 verify reset exit"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+    ]
+}

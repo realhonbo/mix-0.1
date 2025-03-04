@@ -1,0 +1,50 @@
+{
+    /* OpenOCD Cortex Debug */
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "cmsis-dap",
+            "cwd": "${workspaceFolder}",
+            "executable": "./build/movebase.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "target/stm32f1x.cfg"
+            ],
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            },
+            "serverArgs": [
+                "-c",
+                "adapter speed 4000"
+            ],
+            "svdFile":"STM32F103.svd",
+            ////"runToEntryPoint": "main",
+            ////"preLaunchTask": "program->stm32"
+        },
+        {
+            "name": "st-link",
+            "cwd": "${workspaceFolder}",
+            "executable": "./build/movebase.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f1x.cfg"
+            ],
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            },
+            "serverArgs": [
+                "-c",
+                "adapter speed 4000"
+            ],
+            "svdFile":"STM32F103.svd",
+        }
+    ]
+}
