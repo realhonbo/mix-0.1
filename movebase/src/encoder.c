@@ -4,19 +4,19 @@
 #include "gpio.h"
 #include "include/multi.h"
 
-/*******************************
- ** 编码器数据读取初始化 (TIM2 TIM1)
- *       A相   B相
- * TIM1: PA8   PA9    > Motor_A
- * TIM2: PA1   PA0    > Motor_B
- *! 注意: TIM2的1,2通道 与 编码器B,A相 对应
- *!      motor_B 转动方向与 motor_A 相反
- */
-static TIM_HandleTypeDef htim2;
-static TIM_HandleTypeDef htim1;
+/***************************************************************************************
+ *                       TIM1/2 Init for Reading Hall-Encoder                          *
+ *                                                                                     *
+ *         Phase-A         Phase-B                                                     *
+ * TIM1:  PA8   PA9    >   Motor_A                                                     *
+ * TIM2:  PA1   PA0    >   Motor_B                                                     *
+ *! Warn: Channel1/2 of TIM2 is relevant to phase A/B of encoder                       *
+ *!       motor-B rotates in the opposite direction to motor-A                         *
+ ***************************************************************************************/
 
-static void encoder_tim1_init(GPIO_InitTypeDef *IO_Init,
-                              TIM_Encoder_InitTypeDef *EC_Init)
+static TIM_HandleTypeDef htim1, htim2;
+
+static void __encoder_tim1_init(GPIO_InitTypeDef *IO_Init, TIM_Encoder_InitTypeDef *EC_Init)
 {
     __HAL_RCC_TIM1_CLK_ENABLE();
 
@@ -34,8 +34,7 @@ static void encoder_tim1_init(GPIO_InitTypeDef *IO_Init,
     HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
 }
 
-static void encoder_tim2_init(GPIO_InitTypeDef *IO_Init,
-                              TIM_Encoder_InitTypeDef *EC_Init)
+static void __encoder_tim2_init(GPIO_InitTypeDef *IO_Init, TIM_Encoder_InitTypeDef *EC_Init)
 {
     __HAL_RCC_TIM2_CLK_ENABLE();
 
@@ -56,38 +55,36 @@ static void encoder_tim2_init(GPIO_InitTypeDef *IO_Init,
 
 void encoder_init(void)
 {
-    GPIO_InitTypeDef IO_Init;
     TIM_Encoder_InitTypeDef EC_Init;
+    GPIO_InitTypeDef IO_Init;
 
     __HAL_RCC_GPIOA_CLK_ENABLE();
 
-// gpio
     IO_Init.Mode = GPIO_MODE_INPUT;
-// encoder
-    EC_Init.EncoderMode = TIM_ENCODERMODE_TI12; // TI1 + TI2 正交编码
-    EC_Init.IC1Polarity = TIM_ICPOLARITY_RISING; // 上升沿触发
+    // TI1 TI2 正交编码 + 上升沿触发
+    EC_Init.EncoderMode = TIM_ENCODERMODE_TI12;
+    EC_Init.IC1Polarity = TIM_ICPOLARITY_RISING;
     EC_Init.IC2Polarity = TIM_ICPOLARITY_RISING;
     EC_Init.IC1Selection = TIM_ICSELECTION_DIRECTTI;
     EC_Init.IC2Selection = TIM_ICSELECTION_DIRECTTI;
-    EC_Init.IC1Filter = 10; // 滤波
+    EC_Init.IC1Filter = 10;
     EC_Init.IC2Filter = 10;
-// init
-    encoder_tim1_init(&IO_Init, &EC_Init);
-    encoder_tim2_init(&IO_Init, &EC_Init);
+
+    __encoder_tim1_init(&IO_Init, &EC_Init);
+    __encoder_tim2_init(&IO_Init, &EC_Init);
 }
 
 
-/***************************
- ** 电机控制相关 
- ** motorx_speed: 电机x的速度
- ** a: left     b: right
- ** speed_mux: 速度读写锁
- */
-static float speed_mota;
-static float speed_motb;
-static rt_mutex_t speed_mux;
+/***************************************************************************************
+ *                              Motor Control Relevant                                 *
+ *  a: left     b: right                                                               *
+ *  mutex_speed: lock of read/update speed                                             *
+ ***************************************************************************************/
 
-int getick_us(void)
+static float speed_mota, speed_motb;
+static rt_mutex_t mutex_speed;
+
+static int hal_gettick_us(void)
 {
     int ms, us;
 
@@ -97,18 +94,12 @@ int getick_us(void)
     return ms*1000 + us;
 }
 
-/**
- * 电机运动方向
- */
-int motor_get_direction(TIM_TypeDef *timx)
+static int motor_get_direction(TIM_TypeDef *timx)
 {
     return ((timx->CR1 & ((0x1UL << (4U)))) == ((0x1UL << (4U))));
 }
 
-/**
- * 编码器模式下 CNT 录到的脉冲数
- */
-static int get_pulse(TIM_TypeDef *timx)
+static int __encoder_get_num_of_pulses(TIM_TypeDef *timx)
 {
     int cnt;
 
@@ -132,44 +123,46 @@ static int get_pulse(TIM_TypeDef *timx)
  */
 static float caculate_speed(TIM_TypeDef *timx, int delta_t)
 {
-    int pulse;
-    float speed;
+    int pulse = __encoder_get_num_of_pulses(timx);
 
-    pulse = get_pulse(timx);
-    speed = qfp_fdiv(pulse * 0.16666667, delta_t);
-
-    return speed;
-}
-
-/*
- * individual thread for updating motor speed
- */
-void motor_speed_update()
-{
-    rt_mutex_take(speed_mux, RT_WAITING_FOREVER);
-
-    speed_mota = -caculate_speed(TIM1, PWM_ENCODER_PERIOD);
-    speed_motb =  caculate_speed(TIM2, PWM_ENCODER_PERIOD);
-
-    rt_mutex_release(speed_mux);
+    return qfp_fdiv(pulse * 0.16666667, delta_t);
 }
 
 /**
- * read value of motor speed
+ * for updating motor speed
+ * reverse motor-a to ensure dual motor the same direction
+ */
+void motor_speed_update()
+{
+    static int last_tick;
+    int current = HAL_GetTick();
+    int dt =  current - last_tick;
+
+    rt_mutex_take(mutex_speed, RT_WAITING_FOREVER);
+
+    speed_mota = -caculate_speed(TIM1, dt);
+    speed_motb =  caculate_speed(TIM2, dt);
+
+    rt_mutex_release(mutex_speed);
+    last_tick = current;
+}
+
+/**
+ * read speed value of motor
  */
 float motor_speed_read(char motor)
 {
     float speed;
-    rt_mutex_take(speed_mux, RT_WAITING_FOREVER);
+    rt_mutex_take(mutex_speed, RT_WAITING_FOREVER);
 
-    if (motor == 'A')
+    if (motor == 'a')
         speed = speed_mota;
-    else if (motor == 'B')
+    else if (motor == 'b')
         speed = speed_motb;
     else
         speed = 0;
 
-    rt_mutex_release(speed_mux);
+    rt_mutex_release(mutex_speed);
     return speed;
 }
 
@@ -178,9 +171,12 @@ float motor_speed_read(char motor)
  */
 void lock_speed_init(void)
 {
-    speed_mux = rt_mutex_create("speed mutex", RT_IPC_FLAG_FIFO);
+    mutex_speed = rt_mutex_create(
+        "speed mutex",
+        RT_IPC_FLAG_FIFO
+    );
 
-    if (speed_mux == RT_NULL) {
-        rt_kprintf("Failed in init mutex of speed...");
+    if (mutex_speed == RT_NULL) {
+        rt_kprintf("lock: Failed to init mutex of speed");
     }
 }

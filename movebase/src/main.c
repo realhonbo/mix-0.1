@@ -15,21 +15,12 @@ struct rx_pack rx_ros;
 //TODO: healthy working and tb6612 input voltage indicator
 void basic_monitor()
 {
-    rt_size_t total, used, max_used;
-    int i = 0;
-
     led_onboard_init();
     voltage_adc_init();
 
     while (1) {
         HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_2);
-
-        // // memory monitor
-        // if (i++ % 4 == 0) {
-        //     rt_memory_info(&total, &used, &max_used);
-        //     printf("[mem] total: %3.2fKB, used: %3.2fKB(%3.1f%%)\r\n", 
-        //         total/1024.0, used/1024.0, (float)used*100/total);
-        // }
+        printf("voltage %fV\r\n", read_voltage());
 
         rt_thread_mdelay(500);
     }
@@ -38,15 +29,13 @@ void basic_monitor()
 //TODO: correct by pid, output pwm, and produce odometry
 void dual_motor_controller()
 {
-    int pwm_l = 0, pwm_r = 0;
-    float actual_l, actual_r;
-    float error_l[3] = {0};
-    float error_r[3] = {0};
-    int i;
-
+    int l_pwm = 0, r_pwm = 0;
+    float l_actual, r_actual;
+    float l_error[3] = {0};
+    float r_error[3] = {0};
     static int last_tick;
     float dt;
-    float vl, vr;
+    float l_vel, r_vel;
     float yaw;
 
     gpio_ain_bin_init();
@@ -57,32 +46,33 @@ void dual_motor_controller()
     while (1) {
 /* motor control */
         printf("%2.3f %2.3f\r\n", rx_ros.cmd.l_vel, rx_ros.cmd.r_vel);
+        //kdb_raw_data_transmit((uint8_t *)&rx_ros, 14);
 
-        actual_l = motor_speed_read('A');
-        actual_r = motor_speed_read('B');
+        l_actual = motor_speed_read('a');
+        r_actual = motor_speed_read('b');
 
-        pwm_l += pid_corrector(rx_ros.cmd.l_vel, actual_l, error_l);
-        pwm_r += pid_corrector(rx_ros.cmd.r_vel, actual_r, error_r);
+        l_pwm += pid_corrector_old(rx_ros.cmd.l_vel, l_actual, l_error);
+        r_pwm += pid_corrector_old(rx_ros.cmd.r_vel, r_actual, r_error);
 
-        pwm_output_set(pwm_l, pwm_r);
+        motor_drive_pwm_set(l_pwm, r_pwm);
 
 /* odometry producer */
         motor_speed_update();
 
-        vl = motor_speed_read('A');
-        vr = motor_speed_read('B');
+        l_vel = motor_speed_read('a');
+        r_vel = motor_speed_read('b');
         yaw = quat_to_yaw(quat);
         dt = qfp_fdiv(HAL_GetTick() - last_tick, 1000);
 
         // fill odometry
-        tx_ros.odom.twist[0] = qfp_fdiv(vl + vr, 2);
-        tx_ros.odom.twist[1] = qfp_fdiv(vr - vl, ROBOT_WHEEL_D);
+        tx_ros.odom.twist[0] = qfp_fdiv(l_vel + r_vel, 2);
+        tx_ros.odom.twist[1] = qfp_fdiv(r_vel - l_vel, ROBOT_WHEEL_D);
         tx_ros.odom.position[0] += tx_ros.odom.twist[0] * qfp_fcos(yaw) * dt;
         tx_ros.odom.position[1] += tx_ros.odom.twist[0] * qfp_fsin(yaw) * dt;
 
         last_tick = HAL_GetTick();
 
-        rt_thread_mdelay(PWM_ENCODER_PERIOD);
+        rt_thread_mdelay(50);
     }
 }
 
@@ -115,7 +105,7 @@ void imu_data_producer()
 }
 
 
-//TODO: main thread
+//TODO: transmit message to ros
 int main(void)
 {
     rt_thread_t t_basic, t_motor, t_imu;
@@ -142,18 +132,16 @@ int main(void)
     rt_thread_startup(t_imu);
 
     ros_msg_uart_init();
+    crc_init();
 
     while (1) {
         // tx: fill header and crc
         tx_ros.header_a = 0xff;
         tx_ros.header_b = 0xff;
-        tx_ros.crc = calculate_crc32((uint8_t *)&tx_ros.imu, 
-            sizeof(struct imu) + sizeof(struct odom)
+        tx_ros.crc = crc32_calculate((uint32_t *)&tx_ros.imu, 
+            (sizeof(struct imu) + sizeof(struct odom)) / 4
         );
         ros_message_transmit((uint8_t *)&tx_ros, sizeof(struct tx_pack));
-
-        // rx
-        //vofa_receive_it();
 
         rt_thread_mdelay(10);
     }

@@ -1,18 +1,35 @@
 #include "stm32f1xx_hal.h"
 
+static CRC_HandleTypeDef hcrc;
 
-uint32_t calculate_crc32(const uint8_t *data, int length)
+void crc_init(void)
 {
-    uint32_t crc = 0xFFFFFFFF;
+    __HAL_RCC_CRC_CLK_ENABLE();
 
-    while (length--) {
-        crc ^= *data++;
-        for (int i = 0; i < 8; i++) {
-            if (crc & 1)
-                crc = (crc >> 1) ^ 0xEDB88320;
-            else
-                crc >>= 1;
-        }
-    }
-    return crc ^ 0xFFFFFFFF;
+    hcrc.Instance = CRC;
+    HAL_CRC_Init(&hcrc);
+}
+
+
+static uint32_t revbit(uint32_t data)
+{
+    asm("rbit r0, r0" :"=r"(data));
+    return data;
+};
+
+uint32_t crc32_calculate(uint32_t *data, int length)
+{
+    uint32_t crc;
+    int i;
+
+    hcrc.State = HAL_CRC_STATE_BUSY;
+    __HAL_CRC_DR_RESET(&hcrc);
+
+    for (i = 0; i < length; i++)
+        hcrc.Instance->DR = revbit(data[i]);
+
+    crc = hcrc.Instance->DR;
+    hcrc.State = HAL_CRC_STATE_READY;
+
+    return crc;
 }

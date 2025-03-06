@@ -65,10 +65,7 @@ void pwm_generator_init(void)
     HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
 }
 
-/**
- * 设置输出给电机的 PWM
- */
-void pwm_output_set(int pwm_l, int pwm_r)
+void motor_drive_pwm_set(int pwm_l, int pwm_r)
 {
     // Motor Left
     if (pwm_l > 0) {
@@ -94,20 +91,48 @@ void pwm_output_set(int pwm_l, int pwm_r)
 }
 
 
-/*
- * PID 控制器
- * error[0]: err
- * error[1]: err_prev
- * error[2]: err_int
-//// #define  Kp    0.55 // 0.55 // 0.2  // 0.3
-//// #define  Ki    0 // 0
-//// #define  Kd    0.7 // 0.35 // 0.15 // 0.25
- */
+/***************************************************************************************
+ *                                 PID Controller                                      *
+ *                                                                                     *
+ * error[1]: err_prev                                                                  *
+ * error[2]: err_int                                                                   *
+ *                                                                                     *
+ * {Kp, Ki, Kd} = {0.55,  0,  0.7 }                                                    *
+ *                {0.55,  0,  0.35}                                                    *
+ *                {0.2 ,  0,  0.15}                                                    *
+ *                {0.3 ,  0,  0.25}                                                    *
+ ***************************************************************************************/
+#define DIV_7199_1DOT48  4864.18919
+
 float Kp = 0.2;
 float Ki = 0;
 float Kd = 0.15;
 
-static float pid_core(float target, float actual, float error[3])
+static float pid_core_old(float target, float actual, float error[3])
+{
+    float out;
+    int err;
+
+    // error and intergration
+    err = target - actual;
+    error[0] = err;
+    error[1] += err;
+
+    // 积分限幅
+    if (error[1] >  0.2) error[1] =  0.2;
+    if (error[1] < -0.2) error[1] = -0.2;
+
+    // delta_out
+    out = Kp * err + Ki * error[1] + Kd * (err - error[0]);
+
+    // 输出限幅
+    if (out >  1.48) out =  1.48;
+    if (out < -1.48) out = -1.48;
+
+    return out;
+}
+
+static float pid_core_oold(float target, float actual, float error[3])
 {
     float out;
 
@@ -130,7 +155,36 @@ static float pid_core(float target, float actual, float error[3])
     return out;
 }
 
-int pid_corrector(float target, float actual, float error[3])
+int pid_corrector_old(float target, float actual, float error[3])
 {
-    return pid_core(target, actual, error) * qfp_fdiv(7199, 1.48);
+    return pid_core_old(target, actual, error) * DIV_7199_1DOT48;
+}
+
+
+static float pid_core(float error, struct pid x)
+{
+    float out;
+
+    // error and intergration
+    x.error_prev = x.error;
+    x.error = error;
+    x.error_int += x.error;
+
+    // 积分限幅
+    if (x.error_int >  0.2) x.error_int =  0.2;
+    if (x.error_int < -0.2) x.error_int = -0.2;
+
+    // delta_out
+    out = Kp * x.error + Ki * x.error_int + Kd * (x.error - x.error_prev);
+
+    // 输出限幅
+    if (out > 1.48)  out = 1.48;
+    if (out < -1.48) out = -1.48;
+
+    return out;
+}
+
+int pid_corrector(float error, struct pid x)
+{
+    return pid_core(error, x) * DIV_7199_1DOT48;
 }

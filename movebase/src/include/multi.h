@@ -63,9 +63,11 @@ void lock_uart_init(void);
 void ros_msg_uart_init(void);
 void ros_message_transmit(const uint8_t *, uint16_t);
 void ros_message_receive_it(uint8_t *, uint16_t);
+void kdb_raw_data_transmit(uint8_t *, int);
 void vofa_receive_it(void);
 
-uint32_t calculate_crc32(const uint8_t *, int);
+void crc_init(void);
+uint32_t crc32_calculate(uint32_t *, int);
 
 void voltage_adc_init(void);
 float read_voltage(void);
@@ -76,17 +78,26 @@ float read_voltage(void);
  * xxx_PERIOD: use the same frequency of reading speed in encoder 
  * and controlling motor
  */
-#define PWM_ENCODER_PERIOD  50
+struct pid {
+    float error;
+    float error_prev;
+    float error_int;
+    struct {
+        float Kp;
+        float Ki;
+        float Kd;
+    } param;
+};
 
 void gpio_ain_bin_init(void);
 void pwm_generator_init(void);
-void pwm_output_set(int, int);
+void motor_drive_pwm_set(int, int);
 void encoder_init(void);
-int motor_get_direction(TIM_TypeDef *);
 void motor_speed_update();
 float motor_speed_read(char);
 void lock_speed_init(void);
-int pid_corrector(float, float, float *);
+int pid_corrector(float error, struct pid x);
+int pid_corrector_old(float, float, float *);
 
 /*
  * imu 3-axis raw data
