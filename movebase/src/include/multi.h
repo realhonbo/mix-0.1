@@ -53,16 +53,11 @@ struct rx_pack {
     uint32_t crc;
 } __attribute__((packed));
 
-typedef union {
-    uint8_t bytes[4];
-    float value;
-} f2b_t;
-
 void led_onboard_init(void);
 void lock_uart_init(void);
 void ros_msg_uart_init(void);
 void ros_message_transmit(const uint8_t *, uint16_t);
-void ros_message_receive_it(uint8_t *, uint16_t);
+void ros_message_receive(uint8_t *, uint16_t);
 void kdb_raw_data_transmit(uint8_t *, int);
 void vofa_receive_it(void);
 
@@ -79,14 +74,8 @@ float read_voltage(void);
  * and controlling motor
  */
 struct pid {
-    float error;
     float error_prev;
     float error_int;
-    struct {
-        float Kp;
-        float Ki;
-        float Kd;
-    } param;
 };
 
 void gpio_ain_bin_init(void);
@@ -96,7 +85,7 @@ void encoder_init(void);
 void motor_speed_update();
 float motor_speed_read(char);
 void lock_speed_init(void);
-int pid_corrector(float error, struct pid x);
+int pid_corrector(float error, struct pid *x);
 int pid_corrector_old(float, float, float *);
 
 /*

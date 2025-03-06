@@ -104,87 +104,31 @@ void motor_drive_pwm_set(int pwm_l, int pwm_r)
  ***************************************************************************************/
 #define DIV_7199_1DOT48  4864.18919
 
+#define SYMMER_LIMIT(x, MAX) \
+    ((x) > MAX ? MAX : (x) < -MAX ? -MAX : x)
+
 float Kp = 0.2;
 float Ki = 0;
 float Kd = 0.15;
 
-static float pid_core_old(float target, float actual, float error[3])
+static float pid_core(float error, struct pid *x)
 {
     float out;
-    int err;
 
-    // error and intergration
-    err = target - actual;
-    error[0] = err;
-    error[1] += err;
-
-    // 积分限幅
-    if (error[1] >  0.2) error[1] =  0.2;
-    if (error[1] < -0.2) error[1] = -0.2;
+    // intergration
+    x->error_int += error;
+    x->error_int = SYMMER_LIMIT(x->error_int, 0.2);
 
     // delta_out
-    out = Kp * err + Ki * error[1] + Kd * (err - error[0]);
+    out = Kp * error + Ki * x->error_int + Kd * (error - x->error_prev);
+    out = SYMMER_LIMIT(out, 1.48);
 
-    // 输出限幅
-    if (out >  1.48) out =  1.48;
-    if (out < -1.48) out = -1.48;
+    x->error_prev = error;
 
     return out;
 }
 
-static float pid_core_oold(float target, float actual, float error[3])
-{
-    float out;
-
-    // error and intergration
-    error[1] = error[0];
-    error[0] = target - actual;
-    error[2] += error[0];
-
-    // 积分限幅
-    if (error[2] > 0.2)  error[2] = 0.2;
-    if (error[2] < -0.2) error[2] = -0.2;
-
-    // delta_out
-    out = Kp * error[0] + Ki * error[2] + Kd * (error[0] - error[1]);
-
-    // 输出限幅
-    if (out > 1.48)  out = 1.48;
-    if (out < -1.48) out = -1.48;
-
-    return out;
-}
-
-int pid_corrector_old(float target, float actual, float error[3])
-{
-    return pid_core_old(target, actual, error) * DIV_7199_1DOT48;
-}
-
-
-static float pid_core(float error, struct pid x)
-{
-    float out;
-
-    // error and intergration
-    x.error_prev = x.error;
-    x.error = error;
-    x.error_int += x.error;
-
-    // 积分限幅
-    if (x.error_int >  0.2) x.error_int =  0.2;
-    if (x.error_int < -0.2) x.error_int = -0.2;
-
-    // delta_out
-    out = Kp * x.error + Ki * x.error_int + Kd * (x.error - x.error_prev);
-
-    // 输出限幅
-    if (out > 1.48)  out = 1.48;
-    if (out < -1.48) out = -1.48;
-
-    return out;
-}
-
-int pid_corrector(float error, struct pid x)
+int pid_corrector(float error, struct pid *x)
 {
     return pid_core(error, x) * DIV_7199_1DOT48;
 }

@@ -213,7 +213,7 @@ void ros_message_transmit(const uint8_t *buffer, uint16_t size)
     HAL_UART_Transmit(&huart2, buffer, size, 0xff);
 }
 
-void ros_message_receive_it(uint8_t *buffer, uint16_t size)
+void ros_message_receive(uint8_t *buffer, uint16_t size)
 {
     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, buffer, size);
 }
@@ -236,7 +236,8 @@ void USART2_IRQHandler(void)
     if(__HAL_UART_GET_FLAG(&huart2, UART_FLAG_IDLE))
     {
         __HAL_UART_CLEAR_IDLEFLAG(&huart2);
-        /*HAL_UART_DMAStop(&huart2); + Data Process, but we don't need*/
+        /** HAL_UART_DMAStop(&huart2); + Data Process, 
+         * but we move the rights to user */
         HAL_UART_Receive_DMA(&huart2, (uint8_t *)&rx_ros, 14);
     }
 }

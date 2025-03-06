@@ -31,30 +31,31 @@ void dual_motor_controller()
 {
     int l_pwm = 0, r_pwm = 0;
     float l_actual, r_actual;
-    float l_error[3] = {0};
-    float r_error[3] = {0};
     static int last_tick;
-    float dt;
+    float dt, yaw;
     float l_vel, r_vel;
-    float yaw;
+    struct pid l_wheel = {0};
+    struct pid r_wheel = {0};
 
     gpio_ain_bin_init();
     pwm_generator_init();
     encoder_init();
-    ros_message_receive_it((uint8_t *)&rx_ros, sizeof(rx_ros));
+    ros_message_receive((uint8_t *)&rx_ros, sizeof(rx_ros));
 
     while (1) {
 /* motor control */
-        printf("%2.3f %2.3f\r\n", rx_ros.cmd.l_vel, rx_ros.cmd.r_vel);
-        //kdb_raw_data_transmit((uint8_t *)&rx_ros, 14);
-
-        l_actual = motor_speed_read('a');
-        r_actual = motor_speed_read('b');
-
-        l_pwm += pid_corrector_old(rx_ros.cmd.l_vel, l_actual, l_error);
-        r_pwm += pid_corrector_old(rx_ros.cmd.r_vel, r_actual, r_error);
-
-        motor_drive_pwm_set(l_pwm, r_pwm);
+        if (rx_ros.header_a == 0xEE && rx_ros.header_b == 0xEE &&
+                crc32_calculate((uint32_t *)&rx_ros.cmd, sizeof(rx_ros.cmd)/4) == rx_ros.crc)
+        {
+            printf("%2.3f %2.3f\r\n", rx_ros.cmd.l_vel, rx_ros.cmd.r_vel);
+            l_actual = motor_speed_read('a');
+            r_actual = motor_speed_read('b');
+    
+            l_pwm += pid_corrector(rx_ros.cmd.l_vel - l_actual, &l_wheel);
+            r_pwm += pid_corrector(rx_ros.cmd.r_vel - r_actual, &r_wheel);
+    
+            motor_drive_pwm_set(l_pwm, r_pwm);
+        }
 
 /* odometry producer */
         motor_speed_update();
@@ -114,6 +115,8 @@ int main(void)
     lock_speed_init();
     lock_uart_init();
 
+    crc_init();
+
     // thread init
     t_basic = rt_thread_create("led", basic_monitor,
         NULL, STACK_1KB, PRIO_LOWEST, 10);
@@ -132,7 +135,6 @@ int main(void)
     rt_thread_startup(t_imu);
 
     ros_msg_uart_init();
-    crc_init();
 
     while (1) {
         // tx: fill header and crc
